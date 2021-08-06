@@ -125,15 +125,33 @@ shinyServer(function(input, output, session) {
     observe({
         val<- nrow(trail())
         
+        #print(val)
         updateSliderInput(session, "range",  value = c(0, val), max = val)
     })
     
-    
+    observeEvent(input$plot_brush,{
+        val<-input$plot_brush
+        t<-trail()
+        
+        #n<-nrow(t)
+        
+        
+        xmin<-val$xmin
+        xmax<-val$xmax
+        
+        nmin <- sum(t$Cummlative_distance<xmin)
+        nmax <- sum(t$Cummlative_distance<xmax)
+        
+        #print(c(floor(xmin/max*n),ceiling(xmax/max*n)))
+        
+        updateSliderInput(session, "range",  value = c(nmin,nmax))
+    })
     
     
     
     output$distMap <- renderPlot({
         #print(trail_co())
+        
         
         A <- input$range[1]
         B <- input$range[2]
@@ -168,6 +186,9 @@ shinyServer(function(input, output, session) {
     
     output$distPlot <- renderPlot({
         validate(need(trail(), message = FALSE))
+        #validate(need(input$range[1]), message = FALSE)
+        #validate(need(input$range[2]), message = FALSE)
+        session$resetBrush("plot_brush")
         
         A <- input$range[1]
         B <- input$range[2]

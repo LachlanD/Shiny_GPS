@@ -44,7 +44,8 @@ shinyUI(fluidPage(
     ),
         
     mainPanel(
-        plotOutput("distPlot")
+        plotOutput("distPlot",
+                   brush = "plot_brush")
     )
     
     
