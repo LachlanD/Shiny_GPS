@@ -9,6 +9,7 @@
 
 library(shiny)
 library(ggplot2)
+library(lwgeom)
 library(ggmap)
 library(sf)
 library(grid)
@@ -17,6 +18,10 @@ library(gridExtra)
 #Too big to preload load dynamically instead
 #load("layers.RData")
 
+#load("geology_layer.RData")
+#load("vegetation_layer.RData")
+sf_use_s2(FALSE)
+
 # Define server logic required to draw a histogram
 shinyServer(function(input, output, session) {
     
@@ -24,12 +29,16 @@ shinyServer(function(input, output, session) {
     # The selected file, if any
     userFile <- reactive({
         validate(need(input$gpx, message = FALSE))
+        
         input$gpx
     })
+    
+    
     
     trail <- reactive({
         trail<-data.frame()
         trail <- sf::st_read(userFile()$datapath, layer = "track_points")
+        #trail<-st_transform(trail, 54032)
         d<-sf::st_distance(trail)
         
         acc<-numeric(nrow(d))
@@ -38,31 +47,6 @@ shinyServer(function(input, output, session) {
         }
         
         trail$Cummlative_distance<-acc
-        
-        load("geology_layer.RData")
-        
-        trail<-st_transform(trail, st_crs(gsf))
-        sf::sf_use_s2(FALSE)
-        
-        trail<-sf::st_join(trail, gsf, suffix=c("","GEO"))
-        rm(gsf)
-        gc()
-        #load("vegetation_layer.RData")
-        #trail<-sf::st_join(trail, bsf, suffix=c("","VEG"))
-        #rm(bsf)
-        #gc()
-        
-        trail$GEO_GRP<-1
-        #print(trail$DESC)
-        d<-trail[1,]$DESC
-        grp<-1
-        for(i in 1:nrow(trail)-1){
-            if(!(d %in% trail[i+1,]$DESC)){
-                grp<-grp+1
-                d<-trail[i+1,]$DESC
-            } 
-            trail[i+1,]$GEO_GRP<-grp
-        }
         
         trail
     })
@@ -83,12 +67,68 @@ shinyServer(function(input, output, session) {
         
     })
     
+    
+    
+    
+    
+    geology<-reactive({
+        validate(need(trail(), message=FALSE))
+        
+        #Dynamic loading for less memory usage
+        load("geology_layer.RData")
+        geology<-sf::st_join(trail(), gsf, join = st_nearest_feature)
+        rm(gsf)
+        gc()
+        
+        geology<- subset(geology, select = c(Cummlative_distance, ele, DESC, LITHOLOGY, GEOLHIST)) 
+                
+        geology$GEO_GRP<-1
+                
+        d<-geology[1,]$DESC
+        grp<-1
+        for(i in 1:nrow(geology)-1){
+            if(!(d %in% geology[i+1,]$DESC)){
+                grp<-grp+1
+                d<-geology[i+1,]$DESC
+            } 
+                geology[i+1,]$GEO_GRP<-grp
+        }
+        geology
+    })
+    
+    veg<-reactive({
+        validate(need(trail(), message=FALSE))
+        
+        #Dynamic loading for less memory usage
+        load("vegetation_layer.RData")
+        veg<-sf::st_join(trail(), bsf, join = st_nearest_feature)
+        rm(bsf)
+        gc()
+        
+        veg<- subset(veg, select = c(Cummlative_distance, ele, EVC, XGROUPNAME, XSUBGGROUP, X_EVCNAME)) 
+        
+        veg$VEG_GRP<-1
+        
+        d<-veg[1,]$EVC
+        grp<-1
+        for(i in 1:nrow(veg)-1){
+            if(!(d %in% veg[i+1,]$EVC)){
+                grp<-grp+1
+                d<-veg[i+1,]$EVC
+            } 
+            veg[i+1,]$VEG_GRP<-grp
+        }
+        veg
+    })
+    
+    
     observe({
         val<- nrow(trail())
-        # Control the value, min, max, and step.
-        # Step size is 2 when input value is even; 1 when value is odd.
+        
         updateSliderInput(session, "range",  value = c(0, val), max = val)
     })
+    
+    
     
     
     
@@ -103,16 +143,22 @@ shinyServer(function(input, output, session) {
         {
             b<-make_bbox(lon = c(-180,180), lat=c(-70,70), f=0)
             map<-get_map(location = b, maptype = "satellite", source = "google")
-            ggmap(map)
+            ggmap(map) +  
+                theme(axis.title=element_blank(),
+                    axis.text=element_blank(),
+                    axis.ticks=element_blank())
             
         } else {
             start<-trail_co()[A,]
             end<-trail_co()[B,]
         
             gg_map() + 
-                geom_point(data = start, mapping = aes(x = X, y = Y), colour="green", alpha=0.3, size = 4) +
-                geom_point(data = end, mapping = aes(x = X, y = Y), colour="red", alpha=0.3, size = 4) +
-                labs(x = "Longitude", y = "Latitude", colour = "Elevation (m)")
+                geom_point(data = start, mapping = aes(x = X, y = Y), colour="green", alpha=0.7, size = 4) +
+                geom_point(data = end, mapping = aes(x = X, y = Y), colour="red", alpha=0.7, size = 4) +  
+                theme(axis.title=element_blank(),
+                      axis.text=element_blank(),
+                      axis.ticks=element_blank())
+                
         }
             
         
@@ -126,11 +172,29 @@ shinyServer(function(input, output, session) {
         A <- input$range[1]
         B <- input$range[2]
         
-        dat <- trail()[A:B,]
+        c<-input$choice
         
-        ggplot(data = dat, aes(fill=DESC, group = GEO_GRP)) + 
-            geom_ribbon(aes(x=Cummlative_distance, ymin=-10, ymax=ele)) + 
-            theme(legend.position="bottom", legend.direction = "vertical")
+        if(c == "Vegetation")
+        {
+            veg <- veg()[A:B,]
+            ggplot(data = veg, aes(fill=XGROUPNAME, group = VEG_GRP)) + 
+                geom_ribbon(aes(x=Cummlative_distance, ymin=-10, ymax=ele)) + 
+                theme(legend.position="bottom", legend.direction = "vertical") + 
+                labs(x ="Distance (m)", y = "Elevation (m)")
+        } else if(c == "Geology"){
+            geo <- geology()[A:B,]
+            ggplot(data = geo, aes(fill=DESC, group = GEO_GRP)) + 
+                geom_ribbon(aes(x=Cummlative_distance, ymin=-10, ymax=ele)) + 
+                theme(legend.position="bottom", legend.direction = "vertical") + 
+                    labs(x ="Distance (m)", y = "Elevation (m)")
+        } else {
+            dat <- trail()[A:B,]
+            ggplot(data = dat) + 
+                geom_path(aes(x=Cummlative_distance, y=ele, colour = ele)) + 
+                theme(legend.position="none") + 
+                    labs(x ="Distance (m)", y = "Elevation (m)")
+        }
+                
         
     })
     

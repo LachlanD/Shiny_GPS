@@ -26,6 +26,12 @@ shinyUI(fluidPage(
             sliderInput("range", 
                         label = "Range of interest:",
                         min = 1, max = 100, value = c(1, 100)
+            ),
+            radioButtons(
+                "choice",
+                label = "Display",
+                choices = c("None", "Geology", "Vegetation"),
+                selected = "None"
             )
         ),
 
